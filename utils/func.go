@@ -12,13 +12,12 @@ import (
 func MakePstr() ([]byte, error) {
 	b := make([]byte, 19)
 	a := []byte("BitTorrent protocol")
-
 	copy(b, a)
-
 	return b, nil
 
 }
 
+// SHA1 generation
 func SHA1(b *BitTorrent) ([20]byte, error) {
 	i := b.Info
 	var buf bytes.Buffer
@@ -42,13 +41,13 @@ func AnnounceURL(announce string, sha1 [20]byte, peerID string, port string, L i
 	}
 
 	params := url.Values{
-		"info_hash":  []string{string(sha1[:])},
-		"peer_id":    []string{peerID},
+		"info_hash":  []string{string(sha1[:])}, // "stringifying" the bytes
+		"peer_id":    []string{peerID}, // created using dedicated function 
 		"port":       []string{port},
 		"uploaded":   []string{strconv.Itoa(up)},
 		"downloaded": []string{strconv.Itoa(down)},
 		"compact":    []string{"1"},
-		"left":       []string{strconv.Itoa(L)},
+		"left":       []string{strconv.Itoa(L)},//number of bytes left to be downloaded
 	}
 	u.RawQuery = params.Encode()
 	return u.String(), nil

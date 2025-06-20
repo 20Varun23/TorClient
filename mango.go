@@ -35,7 +35,6 @@ func checkPresent(BitField []byte, downloaded *utils.Downloaded) int {
 		for j, bitMask := 0, 1<<7; j < 8; j, bitMask = j+1, bitMask>>1 {
 			idx := (i * 8) + j
 			if (bitMask&temp != 0) && downloaded.WorkedOn[idx] == 0 {
-				fmt.Println("In here bro", idx)
 				downloaded.WorkedOn[idx] = 1
 				return idx
 			}
@@ -46,17 +45,19 @@ func checkPresent(BitField []byte, downloaded *utils.Downloaded) int {
 
 func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sha1 [20]byte, peerList []utils.Peer, downloaded *utils.Downloaded, totalPieces int, wg *sync.WaitGroup) {
 
+	// at the end of this function, just assume that this function is done
 	defer wg.Done()
 
+	//get length of each piece
 	pieceLength := data.Info.Piece_length
-	fmt.Println(26)
 
+	// number of blocks that are present in each piece (2^14)
 	totalBlocks := int(math.Ceil(float64(pieceLength) / (1 << 14)))
 
+	// handshake object
 	c, _ := utils.HandShake(PeerID, Pstr, sha1)
 
-	fmt.Printf("%s\n", c)
-
+	//object for each peer
 	peerObj := utils.Peer{}
 
 	peerObj.IP = peerList[peer].IP
@@ -64,22 +65,26 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 
 	str := net.JoinHostPort(peerObj.IP.String(), strconv.Itoa(int(peerObj.Port)))
 
-	fmt.Printf("\nAddress :%s\n", str)
+	//debugging
+	//fmt.Printf("\nAddress :%s\n", str)
 
+	//connection lasting for 15 seconds
 	conn, err := net.DialTimeout("tcp", str, 15*time.Second)
 
 	if err != nil {
 		return
 	}
+
+	//close the connection before going out of function
 	defer conn.Close()
 
-	fmt.Println("Hello")
-
+	// send information through handshake
 	_, err = conn.Write(c)
 	if err != nil {
 		fmt.Println("connection problem")
 		return
 	}
+
 
 	pstrP := make([]byte, 1)
 
@@ -91,33 +96,36 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 		return
 	}
 
-	p := int(pstrP[0])
+	p := int(pstrP[0]) //protocol identifier length
 	restR := make([]byte, p+48)
 
 	_, err = io.ReadFull(conn, restR)
 
 	if err != nil {
-		fmt.Println("Another reading problem")
 		return
 	}
 
-	if p == 0 {
-		fmt.Println("1")
+	if string(restR[:p])!="BitTorrent protocol" {//Correct protocol
 		return
 	}
 
-	if len(restR) < p+48 {
-		fmt.Println(2)
+	if string(restR[p+8:p+28])!=string(sha1[:]){ //info hash shld match
 		return
 	}
 
-	fmt.Println("Pstr : ", string(restR[:p]))
-	fmt.Println("Reserved : ", restR[p:p+8])
-	fmt.Printf("Info Hash : %s", string(restR[p+8:p+28]))
-	fmt.Println("Peer ID : ", string(restR[p+28:]))
+	if len(restR) < p+48 {//underfilled
+		return
+	}
+
+	 
+	//debugging
+	//fmt.Println("Pstr : ", string(restR[:p]))
+	//fmt.Println("Reserved : ", restR[p:p+8])
+	//fmt.Printf("Info Hash : %s", string(restR[p+8:p+28]))
+	//fmt.Println("Peer ID : ", string(restR[p+28:]))
 
 	// Sending messages
-
+	// bitfield is sent just after handshake
 	bitField, err := utils.ReadMsg(conn)
 
 	if err != nil {
@@ -125,16 +133,15 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 		return
 	}
 
-	fmt.Printf("Length : %d\n", bitField.Length)
-	fmt.Printf("ID : %d\n", bitField.ID)
-	fmt.Printf("Payload : %v", bitField.Payload)
+	//fmt.Printf("Length : %d\n", bitField.Length)
+	//fmt.Printf("ID : %d\n", bitField.ID)
+	//fmt.Printf("Payload : %v", bitField.Payload)
 
 	// totalPieces = len(BitField.Payload)
-	fmt.Println("Debug pre")
-	idx := checkPresent(bitField.Payload, downloaded)
-	fmt.Println("Debug post")
 
-	// idx:=0;
+	//fmt.Println("Debug pre")
+	idx := checkPresent(bitField.Payload, downloaded)
+	//fmt.Println("Debug post")
 
 	if idx == -1 {
 		fmt.Println("\n**************Idx out of -1 *********** ", idx)
@@ -146,7 +153,6 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 		return
 	}
 
-	fmt.Println(9090)
 
 	//I am interested packet
 	interested := utils.Msg{
@@ -164,7 +170,7 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 		return
 	}
 
-	fmt.Println("\n", interestedMsg)
+	//fmt.Println("\n", interestedMsg)
 
 	_, err = conn.Write(interestedMsg)
 	if err != nil {
@@ -185,6 +191,8 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 		return
 	}
 
+
+	//keep alive messages
 	for message.Length == 0 {
 		message, err = utils.ReadMsg(conn)
 
@@ -192,34 +200,38 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 			downloaded.Mu.Lock()
 			downloaded.WorkedOn[idx] = 0
 			downloaded.Mu.Unlock()
-			fmt.Println("Oh god")
 			return
 		}
 
-		fmt.Println("waiting bro")
 	}
 
-	fmt.Println(message.ID)
 
 	// send request
 	block := 0
 	count := 0
 
+	//if last index given then adjust accordingly
 	if idx == totalPieces-1 {
 		pieceLength = data.Info.Length % (pieceLength * (idx))
 	}
 
 	pieceBuffer := make([]byte, pieceLength)
+
+
 	for block < pieceLength {
 		fmt.Println(block, " ", idx)
+		//request msg = (1byte of length def) (id i byte) (12 request msg)
 		reqPayload := make([]byte, 12)
+
+		//index: integer specifying the zero-based piece index
+		//begin: integer specifying the zero-based byte offset within the piece
+		//length: integer specifying the requested length.
 
 		binary.BigEndian.PutUint32(reqPayload[0:4], uint32(idx))
 		binary.BigEndian.PutUint32(reqPayload[4:8], uint32(block))
 		if count < totalBlocks-1 {
 			binary.BigEndian.PutUint32(reqPayload[8:12], uint32(1<<14))
 		} else {
-
 			lastLength := pieceLength - ((totalBlocks - 1) * (1 << 14))
 			if lastLength <= 0 {
 				fmt.Printf("Invalid last block length: %d\n", lastLength)
@@ -230,6 +242,9 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 			}
 			binary.BigEndian.PutUint32(reqPayload[8:12], uint32(lastLength))
 		}
+
+		
+
 		req := utils.Msg{
 			Length:  13,
 			ID:      6,
@@ -242,7 +257,7 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 			downloaded.Mu.Lock()
 			downloaded.WorkedOn[idx] = 0
 			downloaded.Mu.Unlock()
-			fmt.Println("Ok error here")
+			fmt.Println(err);
 			return
 		}
 
@@ -253,7 +268,7 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 			downloaded.Mu.Lock()
 			downloaded.WorkedOn[idx] = 0
 			downloaded.Mu.Unlock()
-			fmt.Println("Ok error is here", err)
+			fmt.Println(err);
 			return
 		}
 
@@ -263,34 +278,31 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 			downloaded.Mu.Lock()
 			downloaded.WorkedOn[idx] = 0
 			downloaded.Mu.Unlock()
+			fmt.Println(err);
 			return
 		}
 
-		if message.ID != 7 {
-			downloaded.Mu.Lock()
-			downloaded.WorkedOn[idx] = 0
-			downloaded.Mu.Unlock()
-			fmt.Println("Unexpected message ID:", message.ID)
-			return
-		}
 
-		for message.Length == 0 {
+
+		for message.Length == 0 || message.ID == 1 {
 			message, err = utils.ReadMsg(conn)
 
 			if err != nil {
 				downloaded.Mu.Lock()
 				downloaded.WorkedOn[idx] = 0
 				downloaded.Mu.Unlock()
+				fmt.Println(err);
 				return
 			}
 
 			fmt.Println("waiting bro")
 		}
-
-		if message.ID == 1 {
+		
+		if message.ID != 7 {
 			downloaded.Mu.Lock()
 			downloaded.WorkedOn[idx] = 0
 			downloaded.Mu.Unlock()
+			fmt.Println(err);
 			return
 		}
 
@@ -307,8 +319,7 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 		count++
 	}
 
-	fmt.Println("I reached here bro")
-
+	// compare the piece lenghts
 	if len(pieceBuffer) != pieceLength {
 		fmt.Println("Incorrect piece length")
 		downloaded.Mu.Lock()
@@ -317,14 +328,15 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 		return
 	}
 
+	//take SHA1 of the piece
 	Psha1 := utils.SHA1Bytes(pieceBuffer)
 
+	//take the expected piece hash
 	expectedPieceHash := []byte(data.Info.Pieces[idx*20 : (idx+1)*20])
 
-	fmt.Println("REached HerE")
 
+	//Checking if the SHA1 hash is the same or not or is already present
 	if bytes.Equal(Psha1[:], expectedPieceHash[:]) {
-		fmt.Println("it worked")
 		fmt.Println("Worked ", idx)
 		downloaded.Mu.Lock()
 		if downloaded.WorkedOn[idx] == -1 {
@@ -347,11 +359,14 @@ func HandlePeer(data *utils.BitTorrent, peer int, PeerID string, Pstr []byte, sh
 }
 
 func torrent(tFile string, sUrl string) {
+	// file open
+
 	file, err := os.Open(tFile)
 	if err != nil {
 		panic(err)
 	}
 
+	// get torrent object
 	data := utils.BitTorrent{}
 	err = bencode.Unmarshal(file, &data)
 
@@ -359,6 +374,7 @@ func torrent(tFile string, sUrl string) {
 		panic(err)
 	}
 
+	//file closed
 	file.Close()
 
 	sha1, err := utils.SHA1(&data)
@@ -367,70 +383,75 @@ func torrent(tFile string, sUrl string) {
 		panic(err)
 	}
 
-	fmt.Printf("SHA1 : %x\n", sha1)
+	//line to debug
+	//fmt.Printf("SHA1 : %x\n", sha1)
 
 	// Creating PeerID
 	PeerID, _ := utils.PeerId()
 
 	port := "8080"
 
+	// upload and downloaded number
 	downloaded := 0
 	uploaded := 0
 
+	//	creating announce url with correct parameters
 	aURL, err := utils.AnnounceURL(data.Announce, sha1, PeerID, port, data.Info.Length, downloaded, uploaded)
 
 	if err != nil {
 		panic(err)
 	}
 
+	//get response
 	res, err := http.Get(aURL)
 	if err != nil {
 		panic(err)
 	}
 
+	//read response body
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		panic(err)
 	}
 
-	// fmt.Printf("Raw Response: %s\n", string(body))
-
 	aRespObj := utils.Resp{}
+	
+	// parse the body into response object
 	err = bencode.Unmarshal(bytes.NewReader(body), &aRespObj)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Tracker Response: %+v\n", aRespObj)
 
-	fmt.Println("Interval : ", aRespObj.Interval)
-	fmt.Println("Peers : ", aRespObj.Peers)
+	// for debugging 
+	//fmt.Printf("Tracker Response: %+v\n", aRespObj) 
+	//fmt.Println("Interval : ", aRespObj.Interval)
+	//fmt.Println("Peers : ", aRespObj.Peers)
 
-	var Pstr []byte
+	//* handshake
+
+	var Pstr []byte // Protocol identifier
 	Pstr, _ = utils.MakePstr()
 
 	fmt.Println(string(Pstr))
 
+	//getting peerlist
 	peerList, _ := utils.GetPeers([]byte(aRespObj.Peers))
-
-	//* Till here dont change
-	//* handshake
 
 	//Number of peers
 	totalPeers := len(peerList)
 
-	// peer := 0
+	//debugging
+	//fmt.Println("piece length : ", data.Info.Piece_length)
+	//fmt.Println("File Length : ", data.Info.Length)
 
-	fmt.Println("piece length : ", data.Info.Piece_length)
-	fmt.Println("File Length : ", data.Info.Length)
-
+	//caculating the total number of pieces
 	totalPieces := int(math.Ceil(float64(data.Info.Length) / float64(data.Info.Piece_length)))
+
 	var downloadedPieces = utils.Downloaded{Piece: make(map[int]([]byte)), WorkedOn: make([]int, totalPieces)}
 	fmt.Println(totalPeers)
 
-	count := 0
 
-	for true {
-		count++
+	for {
 		downloadedPieces.Mu.Lock()
 		if downloadedPieces.Successful == totalPieces {
 			downloadedPieces.Mu.Unlock()
@@ -441,19 +462,19 @@ func torrent(tFile string, sUrl string) {
 
 		downloadedPieces.Mu.Unlock()
 		for peer := 0; peer < totalPeers; peer += 1 {
+			// adding one to the wait grp
 			wg.Add(1)
+			// start goroutine
 			go HandlePeer(&data, peer, PeerID, Pstr, sha1, peerList, &downloadedPieces, totalPieces, wg)
 		}
 
 		wg.Wait()
-		downloadedPieces.Mu.Lock()
-		fmt.Println("=======================", 6767, " ", downloadedPieces.Successful, count, "=================================")
-		downloadedPieces.Mu.Unlock()
 	}
 
 	fmt.Println("------------------------------------------------------------------------------------------------")
 	fmt.Println("------------------------------------------------------------------------------------------------")
 
+	//make file to add content
 	file, err = os.Create(sUrl)
 	if err != nil {
 		log.Fatalf("Failed to create file: %v", err)
@@ -462,15 +483,13 @@ func torrent(tFile string, sUrl string) {
 
 	downloadedPieces.Mu.Lock()
 	var keys []int
+	// get the piece number for each of the pieces to call from map
 	for k := range downloadedPieces.Piece {
 		keys = append(keys, k)
 	}
 	sort.Ints(keys)
-	fmt.Println(keys)
-	fmt.Println()
-	fmt.Println()
-	fmt.Println()
-	fmt.Println("Statring Download after count = ", count, "Pieces downloaded = ", downloadedPieces.Successful)
+	//debugging
+	//fmt.Println("Statring Download after count = ", count, "Pieces downloaded = ", downloadedPieces.Successful)
 
 	for _, k := range keys {
 		fmt.Println("Downloading : ", k)

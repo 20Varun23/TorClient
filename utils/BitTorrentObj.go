@@ -25,6 +25,7 @@ type Peer struct {
 	Port uint16
 }
 
+//creates 20 byte peer_id from all uppercase, lower case and numerals
 func PeerId() (string, error) {
 	PeerIDB := make([]byte, 20)
 
@@ -39,18 +40,20 @@ func PeerId() (string, error) {
 	return PeerID, nil
 }
 
+
 func GetPeers(peersBin []byte) ([]Peer, error) {
-	const peerSize = 6 // 4 for IP, 2 for port
+	const peerSize = 6 // 4 for IP, 2 for port (bytes)
 	numPeers := len(peersBin) / peerSize
-	if len(peersBin)%peerSize != 0 {
+	if len(peersBin)%peerSize != 0 { // peerlist should contain complete information regarding each of the peers
 		err := fmt.Errorf("received malformed peers")
 		return nil, err
 	}
+
 	peers := make([]Peer, numPeers)
 	for i := 0; i < numPeers; i++ {
-		offset := i * peerSize
-		peers[i].IP = net.IP(peersBin[offset : offset+4])
-		peers[i].Port = binary.BigEndian.Uint16(peersBin[offset+4 : offset+6])
+		offset := i * peerSize // offset for each peer
+		peers[i].IP = net.IP(peersBin[offset : offset+4]) // first 4 bytes for each peer's IP
+		peers[i].Port = binary.BigEndian.Uint16(peersBin[offset+4 : offset+6]) // first 2 bytes for each port
 	}
 	return peers, nil
 }

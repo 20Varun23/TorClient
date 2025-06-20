@@ -27,17 +27,17 @@ type Msg struct {
 
 func HandShake(peerID string, Pstr []byte, sha1 [20]byte) ([]byte, error) {
 	buf := make([]byte, len(Pstr)+49)
-	buf[0] = byte(len(Pstr))
+	buf[0] = byte(len(Pstr)) //lengh of the protocol identifier
 	ptr := 1
 	ptr += copy(buf[ptr:], Pstr)
 	reserved := make([]byte, 8)
-	ptr += copy(buf[ptr:], reserved)
-	ptr += copy(buf[ptr:], sha1[:])
-	ptr += copy(buf[ptr:], []byte(peerID))
-	// fmt.Println(buf[0])
+	ptr += copy(buf[ptr:], reserved) //reserved bytes (all zero)
+	ptr += copy(buf[ptr:], sha1[:]) //sha hash
+	ptr += copy(buf[ptr:], []byte(peerID)) // peerID
 	return buf, nil
 }
 
+//first 4 bytes for length(not including self), next 1 ID and then rest for payload
 func (i *Msg) MakeMessage() ([]byte, error) {
 	buf := make([]byte, i.Length+4)
 	binary.BigEndian.PutUint32(buf[0:4], i.Length)
