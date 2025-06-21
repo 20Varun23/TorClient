@@ -2,6 +2,10 @@
 
 **Torrentium** is go based BitTorrent client that can be used to download files using torrent files.
 
+<!--[ ]:Add picture of UI-->
+
+![Torrentium UI](./screenshot.png)
+
 ## Features
 
 - uses the BitTorent protocol to download files from multiple peers

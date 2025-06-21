@@ -505,7 +505,7 @@ func torrent(tFile string, sUrl string) {
 func main() {
 
 	myApp := app.New()
-	myWindow := myApp.NewWindow("File Picker and Saver")
+	myWindow := myApp.NewWindow("Torrentium")
 
 	var tFile string
 
